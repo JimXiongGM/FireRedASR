@@ -4,6 +4,7 @@ import os
 import kaldiio
 import kaldi_native_fbank as knf
 import numpy as np
+from typing import List
 import torch
 
 
@@ -16,8 +17,15 @@ class ASRFeatExtractor:
     def __call__(self, wav_paths):
         feats = []
         durs = []
-        for wav_path in wav_paths:
-            sample_rate, wav_np = kaldiio.load_mat(wav_path)
+        for wav_item in wav_paths:
+            # Support both file path and in-memory (sample_rate, waveform) tuple
+            if isinstance(wav_item, (tuple, list)) and len(wav_item) == 2:
+                sample_rate, wav_np = wav_item
+            elif isinstance(wav_item, str):
+                sample_rate, wav_np = kaldiio.load_mat(wav_item)
+            else:
+                raise ValueError("Unsupported wav input. Expect path or (sr, samples) tuple.")
+
             dur = wav_np.shape[0] / sample_rate
             fbank = self.fbank((sample_rate, wav_np))
             if self.cmvn is not None:
@@ -30,7 +38,7 @@ class ASRFeatExtractor:
         return feats_pad, lengths, durs
 
     def pad_feat(self, xs, pad_value):
-        # type: (List[Tensor], int) -> Tensor
+        # type: (List[torch.Tensor], int) -> torch.Tensor
         n_batch = len(xs)
         max_len = max([xs[i].size(0) for i in range(n_batch)])
         pad = torch.ones(n_batch, max_len, *xs[0].size()[1:]).to(xs[0].device).to(xs[0].dtype).fill_(pad_value)
@@ -91,6 +99,16 @@ class KaldifeatFbank:
         elif type(wav) in [tuple, list] and len(wav) == 2:
             sample_rate, wav_np = wav
         assert len(wav_np.shape) == 1
+
+        # Normalize to float32 in [-1, 1]
+        if wav_np.dtype != np.float32:
+            wav_np = wav_np.astype(np.float32)
+        if wav_np.dtype == np.int16:
+            wav_np = wav_np / 32768.0
+        else:
+            max_abs = float(np.max(np.abs(wav_np))) if wav_np.size > 0 else 1.0
+            if max_abs > 1.0:
+                wav_np = wav_np / max_abs
 
         dither = self.dither if is_train else 0.0
         self.opts.frame_opts.dither = dither

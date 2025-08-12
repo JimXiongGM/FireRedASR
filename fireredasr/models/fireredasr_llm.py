@@ -6,6 +6,7 @@ import re
 import torch
 import torch.nn as nn
 from transformers import AutoModelForCausalLM
+from transformers import GenerationConfig
 
 from fireredasr.models.fireredasr_aed import FireRedAsrAed
 from fireredasr.models.module.adapter import Adapter
@@ -18,7 +19,11 @@ class FireRedAsrLlm(nn.Module):
     @classmethod
     def load_encoder(cls, model_path):
         assert os.path.exists(model_path)
-        package = torch.load(model_path, map_location=lambda storage, loc: storage)
+        package = torch.load(
+            model_path,
+            map_location=lambda storage, loc: storage,
+            weights_only=False,
+        )
         model = FireRedAsrAed.from_args(package["args"])
         if "model_state_dict" in package:
             model.load_state_dict(package["model_state_dict"], strict=False)
@@ -58,6 +63,20 @@ class FireRedAsrLlm(nn.Module):
             attn_implementation=attn_implementation,
             torch_dtype=torch_dtype,
         )
+        # Sanitize generation config to suppress invalid flag warnings in beam search
+        try:
+            gen_cfg = GenerationConfig.from_pretrained(args.llm_dir)
+        except Exception:
+            gen_cfg = GenerationConfig.from_model_config(llm.config)
+        # Disable sampling-only knobs when using deterministic beam search
+        gen_cfg.top_k = None
+        gen_cfg.typical_p = None
+        gen_cfg.penalty_alpha = None
+        # Keep top_p=1.0 neutral; temperature=1.0 neutral
+        gen_cfg.top_p = 1.0
+        gen_cfg.temperature = 1.0
+        gen_cfg.do_sample = False
+        llm.generation_config = gen_cfg
         count_model_parameters(llm)
 
         # LLM Freeze or LoRA

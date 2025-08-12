@@ -89,7 +89,22 @@ def get_wav_info(args):
     elif args.wav_paths and len(args.wav_paths) >= 1:
         wavs = [(base(p), p) for p in sorted(args.wav_paths)]
     elif args.wav_scp:
-        wavs = [line.strip().split() for line in open(args.wav_scp)]
+        scp_path = args.wav_scp
+        scp_dir = os.path.dirname(scp_path)
+        wavs = []
+        for line in open(scp_path):
+            uttid, rel_path = line.strip().split()
+            if not os.path.isabs(rel_path):
+                # If scp file is inside a directory named 'wav' and entries start with 'wav/',
+                # resolve relative to the parent directory to match examples layout.
+                if os.path.basename(scp_dir) == "wav" and rel_path.startswith("wav/"):
+                    base_dir = os.path.dirname(scp_dir)
+                    abs_path = os.path.normpath(os.path.join(base_dir, rel_path))
+                else:
+                    abs_path = os.path.normpath(os.path.join(scp_dir, rel_path))
+            else:
+                abs_path = rel_path
+            wavs.append((uttid, abs_path))
     elif args.wav_dir:
         wavs = glob.glob(f"{args.wav_dir}/**/*.wav", recursive=True)
         wavs = [(base(p), p) for p in sorted(wavs)]

@@ -90,6 +90,7 @@ $ speech2text.py --wav_path examples/wav/BAC009S0764W0121.wav --asr_type "llm" -
 ```
 
 ### Python Usage
+
 ```python
 from fireredasr.models.fireredasr import FireRedAsr
 
