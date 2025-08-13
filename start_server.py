@@ -24,12 +24,14 @@ from fireredasr.audio2vtt import (
 
 app = FastAPI(title="FireRedASR VTT Service")
 
+# Server-side configuration (not client controlled)
+SERVER_MODEL_DIR = os.environ.get("FIREREDASR_MODEL_DIR", "pretrained_models/FireRedASR-LLM-L")
+SERVER_OUTPUT_DIR = os.environ.get("FIREREDASR_OUTPUT_DIR", "out/vtt_api")
+
 
 class TranscribeRequest(BaseModel):
     file_path: str
     asr_type: str = "llm"
-    model_dir: Optional[str] = "pretrained_models/FireRedASR-LLM-L"
-    output_dir: Optional[str] = "out/vtt_api"
     # Segmentation
     seg_method: str = "energy_vad"  # fixed/energy_vad
     segment_ms: int = 15000  # used when seg_method=fixed
@@ -80,7 +82,7 @@ def _is_video(path: str) -> bool:
 
 
 def _extract_wav(input_path: str) -> str:
-    abs_in = os.path.abspath(input_path)
+    abs_in = os.path.abspath(os.path.expanduser(os.path.expandvars(input_path)))
     if not os.path.exists(abs_in):
         raise HTTPException(status_code=400, detail=f"file_path not found: {input_path}")
     os.makedirs("out/tmp", exist_ok=True)
@@ -107,9 +109,9 @@ def _maybe_to_wav(path: str) -> str:
 
 
 def _build_vtt_for_file(req: TranscribeRequest) -> str:
-    model = _ensure_model(req.asr_type, req.model_dir)
+    model = _ensure_model(req.asr_type, SERVER_MODEL_DIR)
 
-    inp_abs = os.path.abspath(req.file_path)
+    inp_abs = os.path.abspath(os.path.expanduser(os.path.expandvars(req.file_path)))
     wav_path = _maybe_to_wav(inp_abs) if _is_video(inp_abs) or os.path.splitext(inp_abs)[1].lower() != ".wav" else inp_abs
 
     # Load waveform
@@ -206,10 +208,10 @@ def _build_vtt_for_file(req: TranscribeRequest) -> str:
         vtt_segments.append((st, et, text))
 
     # Output path
-    os.makedirs(req.output_dir, exist_ok=True)
+    os.makedirs(SERVER_OUTPUT_DIR, exist_ok=True)
     base = os.path.splitext(os.path.basename(inp_abs))[0]
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    vtt_path = os.path.abspath(os.path.join(req.output_dir, f"{base}_{ts}.vtt"))
+    vtt_path = os.path.abspath(os.path.join(SERVER_OUTPUT_DIR, f"{base}_{ts}.vtt"))
     write_vtt(vtt_path, vtt_segments)
 
     # Cleanup temp wav if created
@@ -233,4 +235,10 @@ if __name__ == "__main__":
 
     uvicorn.run(app, host="0.0.0.0", port=8100)
 
+"""
+uvicorn start_server:app --host 0.0.0.0 --port 8100
 
+curl -X POST http://127.0.0.1:8100/transcribe \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "~/test.mp4"}'
+"""
